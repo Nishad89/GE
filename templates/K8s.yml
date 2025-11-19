@@ -1,0 +1,386 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Self-managed Kubernetes (kubeadm) on EC2 - Master + Worker ASG +
+  ECR repo + supporting resources
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing EC2 KeyPair name for SSH access to master
+  InstanceTypeMaster:
+    Type: String
+  InstanceTypeWorker:
+    Type: String
+  MinSize:
+    Type: Number
+  DesiredSize:
+    Type: Number
+  MaxSize:
+    Type: Number
+  SSHLocation:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: SSH access CIDR - restrict in production
+  RepoName:
+    Type: String
+    Default: myapp
+  ImageTag:
+    Type: String
+    Default: latest
+  EnvName:
+    Type: String
+  SubnetId1:
+    Type: String
+  SubnetId2:
+    Type: String
+
+Resources:
+  # Security Groups
+  MasterSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Kubernetes master
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHLocation
+        - IpProtocol: tcp
+          FromPort: 6443
+          ToPort: 6443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 2379
+          ToPort: 2380
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 10250
+          ToPort: 10250
+          CidrIp: 0.0.0.0/0
+        # NodePort range for NodePort services
+        - IpProtocol: tcp
+          FromPort: 30000
+          ToPort: 32767
+          CidrIp: 0.0.0.0/0
+
+  WorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Kubernetes workers
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHLocation
+        - IpProtocol: tcp
+          FromPort: 10250
+          ToPort: 10250
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 30000
+          ToPort: 32767
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 2379
+          ToPort: 2380
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-workers-sg-${EnvName}
+
+  # IAM Role and Instance Profile for EC2 instances (master + workers)
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2InstanceRole
+
+  # ECR repository to push images to
+  # EcrRepository:
+  #   Type: AWS::ECR::Repository
+  #   Properties:
+  #     RepositoryName: !Ref RepoName
+
+  # SSM parameter to hold the kubeadm join command (master writes it, workers read it)
+  KubeJoinParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${AWS::StackName}/kube_join_command
+      Type: String
+      Value: ''
+
+  # Launch Template for Master (single instance)
+  MasterLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${AWS::StackName}-master-${EnvName}
+      LaunchTemplateData:
+        KeyName: !Ref KeyName
+        InstanceType: !Ref InstanceTypeMaster
+        SecurityGroupIds:
+          - !Ref MasterSecurityGroup
+        IamInstanceProfile:
+          Name: !Ref EC2InstanceProfile
+        ImageId: !Ref ImageId
+        UserData: !Base64
+          Fn::Sub: |
+            #!/bin/bash -xe
+            yum update -y
+            # Install utils
+            yum install -y jq awscli git
+            # Install containerd
+            yum install -y amazon-linux-extras
+            amazon-linux-extras enable docker
+            yum install -y docker
+            systemctl enable docker
+            systemctl start docker
+            # Install kubeadm, kubelet, kubectl
+            cat <<'EOF' >/etc/yum.repos.d/kubernetes.repo
+            [kubernetes]
+            name=Kubernetes
+            baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+            enabled=1
+            gpgcheck=1
+            repo_gpgcheck=1
+            gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+            EOF
+            yum install -y kubelet kubeadm kubectl
+            systemctl enable kubelet && systemctl start kubelet
+            swapoff -a || true
+            sed -i '/swap/d' /etc/fstab || true
+            # Initialize kubeadm (using flannel pod-network-cidr)
+            kubeadm init --pod-network-cidr=10.244.0.0/16 --ignore-preflight-errors=all || true
+            # Setup kubeconfig for ec2-user
+            mkdir -p /home/ec2-user/.kube
+            cp -i /etc/kubernetes/admin.conf /home/ec2-user/.kube/config
+            chown ec2-user:ec2-user /home/ec2-user/.kube/config
+            # Install flannel CNI
+            su - ec2-user -c "kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml"
+            # Create join command and store in SSM parameter
+            JOIN_CMD=$(kubeadm token create --print-join-command 2>/dev/null || true)
+            if [ -n "$JOIN_CMD" ]; then
+              aws ssm put-parameter --name "/${AWS::StackName}/kube_join_command" --value "$JOIN_CMD" --type String --overwrite --region ${AWS::Region}
+            fi
+            # Install ingress-nginx using kubectl (simple)
+            su - ec2-user -c "kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml"
+            # Install metrics-server for HPA
+            su - ec2-user -c "kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+            # (Optional) Install helm - for CI/CD to use later
+            curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+  MasterInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref MasterLaunchTemplate
+        Version: !GetAtt MasterLaunchTemplate.LatestVersionNumber
+      SubnetId: !Ref SubnetId1
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-master-${EnvName}
+
+  # Launch Template for Workers
+  WorkerLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${AWS::StackName}-worker-${EnvName}
+      LaunchTemplateData:
+        KeyName: !Ref KeyName
+        InstanceType: !Ref InstanceTypeWorker
+        SecurityGroupIds:
+          - !Ref WorkerSecurityGroup
+        IamInstanceProfile:
+          Name: !Ref EC2InstanceProfile
+        ImageId: !Ref ImageId
+        UserData: !Base64
+          Fn::Sub: |
+            #!/bin/bash -xe
+            yum update -y
+            yum install -y jq awscli
+            # Install docker
+            amazon-linux-extras enable docker
+            yum install -y docker
+            systemctl enable docker
+            systemctl start docker
+            # Install kubeadm/kubelet/kubectl
+            cat <<'EOF' >/etc/yum.repos.d/kubernetes.repo
+            [kubernetes]
+            name=Kubernetes
+            baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+            enabled=1
+            gpgcheck=1
+            repo_gpgcheck=1
+            gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+            EOF
+            yum install -y kubelet kubeadm kubectl
+            systemctl enable kubelet && systemctl start kubelet
+            swapoff -a || true
+            sed -i '/swap/d' /etc/fstab || true
+            # Wait and fetch join command from SSM
+            for i in {1..30}; do
+              JOIN_CMD=$(aws ssm get-parameter --name "/${AWS::StackName}/kube_join_command" --region ${AWS::Region} --query Parameter.Value --output text 2>/dev/null || true)
+              if [ -n "$JOIN_CMD" ]; then
+                echo "JOIN_CMD obtained"
+                break
+              fi
+              echo "Waiting for join command... ($i)"
+              sleep 10
+            done
+            if [ -n "$JOIN_CMD" ]; then
+              # run join
+              $JOIN_CMD || true
+            else
+              echo "No join command found in SSM; worker failed to join"
+            fi
+
+  # AutoScaling Group for workers
+  WorkerASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref SubnetId1
+        - !Ref SubnetId2
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WorkerLaunchTemplate
+        Version: !GetAtt WorkerLaunchTemplate.LatestVersionNumber
+      MinSize: !Ref MinSize
+      MaxSize: !Ref MaxSize
+      DesiredCapacity: !Ref DesiredSize
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-worker
+          PropagateAtLaunch: true
+
+  # ScalePolicy - target tracking on CPU
+  WorkerTargetTrackingSchedule:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub ${AWS::StackName}-cpu-policy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref WorkerASG
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 60
+
+Outputs:
+  MasterPublicIp:
+    Description: Public IP of Kubernetes master
+    Value: !GetAtt MasterInstance.PublicIp
+
+  EcrRepoUri:
+    Description: ECR repository URI to push images
+    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RepoName}
+
+  KubeJoinParameterName:
+    Description: SSM parameter name that contains the kubeadm join command
+    Value: !Sub /${AWS::StackName}/kube_join_command
+
+# -------------------------------------------------------------
+# Below: Example Kubernetes manifests and GitHub Actions workflow that you should store in your repo
+# (these are included here for convenience; they are NOT executed by CloudFormation)
+# -------------------------------------------------------------
+
+# k8s/deployment.yaml
+# --------------------
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: myapp
+# spec:
+#   replicas: 2
+#   selector:
+#     matchLabels:
+#       app: myapp
+#   template:
+#     metadata:
+#       labels:
+#         app: myapp
+#     spec:
+#       containers:
+#       - name: myapp
+#         image: REPLACE_WITH_ECR_URI:latest
+#         ports:
+#         - containerPort: 8080
+
+# k8s/service.yaml
+# ------------------
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: myapp-service
+# spec:
+#   type: LoadBalancer
+#   selector:
+#     app: myapp
+#   ports:
+#   - port: 80
+#     targetPort: 8080
+
+# .github/workflows/ci-cd.yml
+# ---------------------------
+# name: Build Push Deploy to Self-Managed K8s
+# on:
+#   push:
+#     branches: [ main ]
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ secrets.AWS_REGION }}
+#       - name: Login to ECR
+#         id: login-ecr
+#         uses: aws-actions/amazon-ecr-login@v2
+#       - name: Build & Push image
+#         run: |
+#           IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPO_NAME }}:latest"
+#           docker build -t $IMAGE_URI .
+#           docker push $IMAGE_URI
+#   deploy:
+#     needs: build
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Wait for cluster readiness (optional)
+#         run: sleep 10
+#       - name: SSH and deploy to cluster
+#         uses: appleboy/ssh-action@master
+#         with:
+#           host: ${{ secrets.MASTER_PUBLIC_IP }}
+#           username: ec2-user
+#           key: ${{ secrets.SSH_PRIVATE_KEY }}
+#           script: |
+#             # pull latest images into nodes (optional)
+#             # apply k8s manifests (replace image URI in deployment manifest first)
+#             kubectl set image deployment/myapp myapp=${{ secrets.ECR_URI }}:latest --namespace default || true
+#             kubectl apply -f /home/ec2-user/deploy/k8s/deployment.yaml || true
+#             kubectl apply -f /home/ec2-user/deploy/k8s/service.yaml || true
+#             # optionally trigger a rolling restart
+#             kubectl rollout restart deployment/myapp
+# -------------------------------------------------------------
+# END OF DOCUMENT

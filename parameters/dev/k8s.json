@@ -1,0 +1,15 @@
+[
+  { "ParameterKey": "EnvName", "ParameterValue": "dev" },
+  { "ParameterKey": "KeyName", "ParameterValue": "instance_key" },
+  { "ParameterKey": "VpcId", "ParameterValue": "vpc-0a83358ee1760146e" },
+  { "ParameterKey": "SubnetId1", "ParameterValue": "subnet-0700f4195d7c50a39" },
+  { "ParameterKey": "SubnetId2", "ParameterValue": "subnet-02759bd9b9057c880" },
+  { "ParameterKey": "SecurityGroupId", "ParameterValue": "sg-0540ee6461ecf6622" },
+  { "ParameterKey": "InstanceTypeMaster", "ParameterValue": "t3.small" },
+  { "ParameterKey": "InstanceTypeWorker", "ParameterValue": "t3.small" },
+  { "ParameterKey": "MinSize", "ParameterValue": "1" },
+  { "ParameterKey": "DesiredSize", "ParameterValue": "1" },
+  { "ParameterKey": "MaxSize", "ParameterValue": "1" },
+  { "ParameterKey": "ImageId", "ParameterValue": "ami-0150ccaf51ab55a51" }
+]
+
