@@ -21,12 +21,11 @@ Parameters:
     Type: String
     Default: 0.0.0.0/0
     Description: SSH access CIDR - restrict in production
-  RepoName:
-    Type: String
-    Default: myapp
+  # RepoName:
+  #   Type: String
+  #   Default: myapp
   ImageId:
     Type: String
-    Default: latest
   EnvName:
     Type: String
   SubnetId1:
