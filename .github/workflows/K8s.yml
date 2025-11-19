@@ -21,8 +21,8 @@ jobs:
     
     
       - name: validate ec2 cft
-        run : aws cloudformation validate-template --template-body file://templates/k8s.yml
-      - name: Deploy k8s-EC2 Stack
+        run : aws cloudformation validate-template --template-body file://templates/K8s.yml
+      - name: Deploy K8s-EC2 Stack
         run: |
           aws cloudformation deploy \
             --template-file templates/ec2.yaml \
