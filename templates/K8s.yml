@@ -272,18 +272,18 @@ Resources:
           PropagateAtLaunch: true
 
   # ScalePolicy - target tracking on CPU
-  WorkerTargetTrackingSchedule:
-  Type: AWS::AutoScaling::ScalingPolicy
-  DependsOn: WorkerASG
-  Properties:
-    PolicyName: !Sub "${AWS::StackName}-cpu-policy"
-    AutoScalingGroupName: !Ref WorkerASG
-    PolicyType: TargetTrackingScaling
-    TargetTrackingConfiguration:
-      PredefinedMetricSpecification:
-        PredefinedMetricType: ASGAverageCPUUtilization
-      TargetValue: 60
-      DisableScaleIn: false
+  # WorkerTargetTrackingSchedule:
+  # Type: AWS::AutoScaling::ScalingPolicy
+  # DependsOn: WorkerASG
+  # Properties:
+  #   PolicyName: !Sub "${AWS::StackName}-cpu-policy"
+  #   AutoScalingGroupName: !Ref WorkerASG
+  #   PolicyType: TargetTrackingScaling
+  #   TargetTrackingConfiguration:
+  #     PredefinedMetricSpecification:
+  #       PredefinedMetricType: ASGAverageCPUUtilization
+  #     TargetValue: 60
+  #     DisableScaleIn: false
 
 Outputs:
   MasterPublicIp:
