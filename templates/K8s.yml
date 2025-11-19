@@ -24,7 +24,7 @@ Parameters:
   RepoName:
     Type: String
     Default: myapp
-  ImageTag:
+  ImageId:
     Type: String
     Default: latest
   EnvName:
