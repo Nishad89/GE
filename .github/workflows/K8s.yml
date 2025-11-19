@@ -1,11 +1,11 @@
-name: IaC
+name: k8s
 on:
   push:
     branches: 
      - main
      
 jobs:
-  deploy-dev:
+  Infra-dev:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
