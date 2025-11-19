@@ -288,9 +288,9 @@ Outputs:
     Description: Public IP of Kubernetes master
     Value: !GetAtt MasterInstance.PublicIp
 
-  EcrRepoUri:
-    Description: ECR repository URI to push images
-    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RepoName}
+  # EcrRepoUri:
+  #   Description: ECR repository URI to push images
+  #   Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RepoName}
 
   KubeJoinParameterName:
     Description: SSM parameter name that contains the kubeadm join command
