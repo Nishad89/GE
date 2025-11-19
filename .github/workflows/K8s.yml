@@ -25,8 +25,8 @@ jobs:
       - name: Deploy K8s-EC2 Stack
         run: |
           aws cloudformation deploy \
-            --template-file templates/ec2.yaml \
-            --stack-name "dev-ec2-stack" \
+            --template-file templates/K8s.yml \
+            --stack-name "dev-K8s-stack" \
             --parameter-overrides file://parameters/dev/k8s.json \
             --capabilities CAPABILITY_NAMED_IAM
 
