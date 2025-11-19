@@ -272,7 +272,7 @@ Resources:
           PropagateAtLaunch: true
 
   # ScalePolicy - target tracking on CPU
-  WorkerTargetTrackingSchedule:
+  WWorkerTargetTrackingSchedule:
   Type: AWS::AutoScaling::ScalingPolicy
   Properties:
     AutoScalingGroupName: !Ref WorkerASG
@@ -281,6 +281,7 @@ Resources:
       PredefinedMetricSpecification:
         PredefinedMetricType: ASGAverageCPUUtilization
       TargetValue: 60.0
+      DisableScaleIn: false
     PolicyName: !Sub "${AWS::StackName}-cpu-policy"
 
 Outputs:
