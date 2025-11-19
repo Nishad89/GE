@@ -272,7 +272,7 @@ Resources:
           PropagateAtLaunch: true
 
   # ScalePolicy - target tracking on CPU
-  WWorkerTargetTrackingSchedule:
+  WorkerTargetTrackingSchedule:
   Type: AWS::AutoScaling::ScalingPolicy
   Properties:
     AutoScalingGroupName: !Ref WorkerASG
