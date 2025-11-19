@@ -10,6 +10,6 @@
   { "ParameterKey": "MinSize", "ParameterValue": "1" },
   { "ParameterKey": "DesiredSize", "ParameterValue": "1" },
   { "ParameterKey": "MaxSize", "ParameterValue": "1" },
-  { "ParameterKey": "ImageId", "ParameterValue": "ami-0150ccaf51ab55a51" }
+  { "ParameterKey": "ImageId", "ParameterValue": "ami-0fa3fe0fa7920f68e" }
 ]
 
