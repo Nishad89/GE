@@ -127,7 +127,7 @@ Resources:
     Properties:
       Name: !Sub /${AWS::StackName}/kube_join_command
       Type: String
-      Value: ''
+      Value: 'placeholder-value'
 
   # Launch Template for Master (single instance)
   MasterLaunchTemplate:
