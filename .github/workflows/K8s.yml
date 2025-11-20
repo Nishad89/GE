@@ -1,11 +1,11 @@
-name: k8s
+name: Ec2-k8s
 on:
   push:
     branches: 
      - main
      
 jobs:
-  Infra-dev:
+  Infra-K8s:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
