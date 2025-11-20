@@ -229,8 +229,8 @@ Resources:
             yum update -y
             yum install -y jq awscli
             # Install docker
-            amazon-linux-extras enable docker
-            yum install -y docker
+            sudo dnf update -y
+            sudo dnf install -y docker
             systemctl enable docker
             systemctl start docker
             # Install kubeadm/kubelet/kubectl
